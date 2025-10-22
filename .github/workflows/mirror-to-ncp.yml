@@ -1,0 +1,54 @@
+name: Mirror to NCP SourceCommit (SSH)
+
+on:
+  push:
+    branches: [ "master" ]   # 기본 브랜치가 master라면 그대로 사용
+
+concurrency:
+  group: mirror-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TARGET_BRANCH: master
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup SSH (RSA key from secrets)
+        env:
+          NCP_SSH_KEY: ${{ secrets.NCP_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          echo "$NCP_SSH_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          # 호스트 키 등록(경고 방지)
+          ssh-keyscan devtools.ncloud.com >> ~/.ssh/known_hosts
+
+      - name: Add NCP remote & Push
+        env:
+          NCP_GIT_URL: ${{ secrets.NCP_GIT_URL }}  # 예: https://devtools.ncloud.com/2744031/minjun-repo.git 또는 SSH URL
+          GIT_SSH_COMMAND: ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions"
+          git config user.email "actions@users.noreply.github.com"
+
+          # URL 정규화: HTTPS로 들어와도 SSH로 변환
+          # https://devtools.ncloud.com/2744031/minjun-repo.git  -> git@devtools.ncloud.com:2744031/minjun-repo.git
+          if echo "$NCP_GIT_URL" | grep -qE '^https?://devtools\.ncloud\.com/'; then
+            PATH_PART=$(echo "$NCP_GIT_URL" | sed -E 's#^https?://devtools\.ncloud\.com/##')
+            SSH_URL="git@devtools.ncloud.com:${PATH_PART}"
+          else
+            SSH_URL="$NCP_GIT_URL"
+          fi
+
+          git remote add ncp "$SSH_URL" || git remote set-url ncp "$SSH_URL"
+          git push ncp "$TARGET_BRANCH:$TARGET_BRANCH" --force-with-lease
