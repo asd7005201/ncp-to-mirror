@@ -48,17 +48,16 @@ jobs:
           ssh -vvv -T -l "$NCP_SSH_USER" devtools.ncloud.com || true
 
       # 3) 원격에 푸시
-      - name: Push ${{ env.SRC_BRANCH }} to ${{ env.DST_BRANCH }}
+      - name: Push main -> master (overwrite)
         env:
-          # ====== 이 URL은 git@... 금지! 두 가지 중 하나로 설정하세요. ======
-          # A) ssh 스타일:  ssh://devtools.ncloud.com/2744031/minjun-repo.git
-          # B) scp 스타일:  devtools.ncloud.com:2744031/minjun-repo.git
           SSH_URL: ${{ secrets.NCP_GIT_URL }}
           NCP_SSH_USER: ${{ secrets.NCP_SSH_USER }}
           GIT_SSH_COMMAND: ssh -i ~/.ssh/id_rsa -l "$NCP_SSH_USER" -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes
         run: |
           set -euo pipefail
-          git config user.name  "github-actions"
-          git config user.email "actions@users.noreply.github.com"
           git remote add ncp "$SSH_URL" || git remote set-url ncp "$SSH_URL"
-          git push ncp "$SRC_BRANCH:$DST_BRANCH" --force-with-lease
+          # (선택) 원격 상태 보기
+          git ls-remote --heads ncp || true
+          # 강제 푸시: main -> master
+          git push ncp +main:master
+
