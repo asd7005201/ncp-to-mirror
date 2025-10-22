@@ -2,23 +2,21 @@ name: Mirror to NCP SourceCommit (SSH)
 
 on:
   push:
-    branches: [ "main" ]   # GitHub에 존재하는 브랜치
-
+    branches: [ "main" ]  # ← GitHub 쪽은 main
 concurrency:
   group: mirror-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  SRC_BRANCH: main          # GitHub 원본 브랜치
-  DST_BRANCH: master        # NCP 대상 브랜치
+  SRC_BRANCH: main
+  DST_BRANCH: master
 
 jobs:
   mirror:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+        with: { fetch-depth: 0 }
 
       - name: Setup SSH (RSA)
         env:
@@ -30,23 +28,37 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan devtools.ncloud.com >> ~/.ssh/known_hosts
 
-      - name: Add NCP remote & Push main→master
+      - name: Compute SSH URL from NCP_GIT_URL
+        id: url
         env:
-          NCP_GIT_URL: ${{ secrets.NCP_GIT_URL }}  # https 또는 ssh 둘 다 OK
-          GIT_SSH_COMMAND: ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes
+          NCP_GIT_URL: ${{ secrets.NCP_GIT_URL }}
         run: |
           set -euo pipefail
-          git config user.name  "github-actions"
-          git config user.email "actions@users.noreply.github.com"
-
-          # https → ssh 자동 변환
           if echo "$NCP_GIT_URL" | grep -qE '^https?://devtools\.ncloud\.com/'; then
             PATH_PART=$(echo "$NCP_GIT_URL" | sed -E 's#^https?://devtools\.ncloud\.com/##')
             SSH_URL="git@devtools.ncloud.com:${PATH_PART}"
           else
             SSH_URL="$NCP_GIT_URL"
           fi
+          echo "SSH_URL=$SSH_URL" >> $GITHUB_OUTPUT
 
+      - name: Quick SSH auth test (no shell expected)
+        env:
+          SSH_URL: ${{ steps.url.outputs.SSH_URL }}
+        run: |
+          set -euo pipefail
+          # 디버그: 어떤 레포로 붙는지 표시
+          echo "Using SSH_URL: $SSH_URL"
+          # 인증만 테스트 (성공이면 'no shell access' 류 메시지; 실패면 Permission denied)
+          ssh -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -i ~/.ssh/id_rsa git@devtools.ncloud.com true || exit 1
+
+      - name: Push main → master
+        env:
+          SSH_URL: ${{ steps.url.outputs.SSH_URL }}
+          GIT_SSH_COMMAND: ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions"
+          git config user.email "actions@users.noreply.github.com"
           git remote add ncp "$SSH_URL" || git remote set-url ncp "$SSH_URL"
-          # 핵심: 원본(main) → 대상(master) 매핑
           git push ncp "$SRC_BRANCH:$DST_BRANCH" --force-with-lease
