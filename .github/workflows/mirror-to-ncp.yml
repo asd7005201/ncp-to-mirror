@@ -47,3 +47,33 @@ jobs:
           git config user.email "actions@users.noreply.github.com"
           git remote add ncp "$SSH_URL" || git remote set-url ncp "$SSH_URL"
           git push ncp "$SRC_BRANCH:$DST_BRANCH" --force-with-lease
+   
+      - name: Push main to master
+        env:
+          SSH_URL: ${{ secrets.NCP_GIT_URL }}  # git@devtools.ncloud.com:2744031/minjun-repo.git
+          GIT_SSH_COMMAND: >
+            ssh -i ~/.ssh/id_rsa
+                -o StrictHostKeyChecking=yes
+                -o IdentitiesOnly=yes
+                -o PubkeyAcceptedAlgorithms=+ssh-rsa
+                -o HostkeyAlgorithms=+ssh-rsa
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions"
+          git config user.email "actions@users.noreply.github.com"
+          git remote add ncp "$SSH_URL" || git remote set-url ncp "$SSH_URL"
+          git push ncp "$SRC_BRANCH:$DST_BRANCH" --force-with-lease
+       
+        
+        - name: SSH verbose test
+          run: |
+            set -e
+            ssh -vvv \
+              -i ~/.ssh/id_rsa \
+              -o StrictHostKeyChecking=yes \
+              -o IdentitiesOnly=yes \
+              -o PubkeyAcceptedAlgorithms=+ssh-rsa \
+              -o HostkeyAlgorithms=+ssh-rsa \
+              git@devtools.ncloud.com -T || true
+        
+            
