@@ -1,39 +1,49 @@
 name: Mirror to NCP SourceCommit (SSH)
+
 on:
   push:
-    branches: [ "main" ]     # GitHub 쪽 원본 브랜치
+    branches:
+      - main
+
+concurrency:
+  group: mirror-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   SRC_BRANCH: main
-  DST_BRANCH: master         # NCP로 보낼 대상 브랜치
+  DST_BRANCH: master
 
 jobs:
   mirror:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup SSH (RSA)
-        env: { NCP_SSH_KEY: ${{ secrets.NCP_SSH_KEY }} }
+        env:
+          NCP_SSH_KEY: ${{ secrets.NCP_SSH_KEY }}
         run: |
           set -euo pipefail
           mkdir -p ~/.ssh
-          echo "$NCP_SSH_KEY" > ~/.ssh/id_rsa
+          printf "%s" "$NCP_SSH_KEY" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan devtools.ncloud.com >> ~/.ssh/known_hosts
 
-      # (디버그) 개인키→공개키 지문 도출해 보기: NCP에 보인 지문과 같아야 함
-      - name: Debug: fingerprint
+      - name: Debug fingerprint
         run: |
           ssh-keygen -y -f ~/.ssh/id_rsa | ssh-keygen -E sha256 -lf -
 
-      - name: Push main → master
+      - name: Push main to master
         env:
-          SSH_URL: ${{ secrets.NCP_GIT_URL }}   # git@devtools.ncloud.com:... 그대로
+          SSH_URL: ${{ secrets.NCP_GIT_URL }}  # e.g. git@devtools.ncloud.com:2744031/minjun-repo.git
           GIT_SSH_COMMAND: ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes
         run: |
           set -euo pipefail
-          git config user.name  "github-actions"
+          git config user.name "github-actions"
           git config user.email "actions@users.noreply.github.com"
           git remote add ncp "$SSH_URL" || git remote set-url ncp "$SSH_URL"
           git push ncp "$SRC_BRANCH:$DST_BRANCH" --force-with-lease
