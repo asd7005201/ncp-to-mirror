@@ -1,15 +1,10 @@
 name: Mirror to NCP SourceCommit (SSH)
-
 on:
   push:
-    branches: [ "main" ]  # ← GitHub 쪽은 main
-concurrency:
-  group: mirror-${{ github.ref }}
-  cancel-in-progress: true
-
+    branches: [ "main" ]     # GitHub 쪽 원본 브랜치
 env:
   SRC_BRANCH: main
-  DST_BRANCH: master
+  DST_BRANCH: master         # NCP로 보낼 대상 브랜치
 
 jobs:
   mirror:
@@ -19,8 +14,7 @@ jobs:
         with: { fetch-depth: 0 }
 
       - name: Setup SSH (RSA)
-        env:
-          NCP_SSH_KEY: ${{ secrets.NCP_SSH_KEY }}
+        env: { NCP_SSH_KEY: ${{ secrets.NCP_SSH_KEY }} }
         run: |
           set -euo pipefail
           mkdir -p ~/.ssh
@@ -28,33 +22,14 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan devtools.ncloud.com >> ~/.ssh/known_hosts
 
-      - name: Compute SSH URL from NCP_GIT_URL
-        id: url
-        env:
-          NCP_GIT_URL: ${{ secrets.NCP_GIT_URL }}
+      # (디버그) 개인키→공개키 지문 도출해 보기: NCP에 보인 지문과 같아야 함
+      - name: Debug: fingerprint
         run: |
-          set -euo pipefail
-          if echo "$NCP_GIT_URL" | grep -qE '^https?://devtools\.ncloud\.com/'; then
-            PATH_PART=$(echo "$NCP_GIT_URL" | sed -E 's#^https?://devtools\.ncloud\.com/##')
-            SSH_URL="git@devtools.ncloud.com:${PATH_PART}"
-          else
-            SSH_URL="$NCP_GIT_URL"
-          fi
-          echo "SSH_URL=$SSH_URL" >> $GITHUB_OUTPUT
-
-      - name: Quick SSH auth test (no shell expected)
-        env:
-          SSH_URL: ${{ steps.url.outputs.SSH_URL }}
-        run: |
-          set -euo pipefail
-          # 디버그: 어떤 레포로 붙는지 표시
-          echo "Using SSH_URL: $SSH_URL"
-          # 인증만 테스트 (성공이면 'no shell access' 류 메시지; 실패면 Permission denied)
-          ssh -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -i ~/.ssh/id_rsa git@devtools.ncloud.com true || exit 1
+          ssh-keygen -y -f ~/.ssh/id_rsa | ssh-keygen -E sha256 -lf -
 
       - name: Push main → master
         env:
-          SSH_URL: ${{ steps.url.outputs.SSH_URL }}
+          SSH_URL: ${{ secrets.NCP_GIT_URL }}   # git@devtools.ncloud.com:... 그대로
           GIT_SSH_COMMAND: ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes
         run: |
           set -euo pipefail
