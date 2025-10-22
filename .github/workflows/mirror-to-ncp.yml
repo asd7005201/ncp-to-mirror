@@ -2,26 +2,25 @@ name: Mirror to NCP SourceCommit (SSH)
 
 on:
   push:
-    branches: [ "master" ]   # 기본 브랜치가 master라면 그대로 사용
+    branches: [ "main" ]   # GitHub에 존재하는 브랜치
 
 concurrency:
   group: mirror-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  TARGET_BRANCH: master
+  SRC_BRANCH: main          # GitHub 원본 브랜치
+  DST_BRANCH: master        # NCP 대상 브랜치
 
 jobs:
   mirror:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Setup SSH (RSA key from secrets)
+      - name: Setup SSH (RSA)
         env:
           NCP_SSH_KEY: ${{ secrets.NCP_SSH_KEY }}
         run: |
@@ -29,20 +28,18 @@ jobs:
           mkdir -p ~/.ssh
           echo "$NCP_SSH_KEY" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          # 호스트 키 등록(경고 방지)
           ssh-keyscan devtools.ncloud.com >> ~/.ssh/known_hosts
 
-      - name: Add NCP remote & Push
+      - name: Add NCP remote & Push main→master
         env:
-          NCP_GIT_URL: ${{ secrets.NCP_GIT_URL }}  # 예: https://devtools.ncloud.com/2744031/minjun-repo.git 또는 SSH URL
+          NCP_GIT_URL: ${{ secrets.NCP_GIT_URL }}  # https 또는 ssh 둘 다 OK
           GIT_SSH_COMMAND: ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes
         run: |
           set -euo pipefail
           git config user.name  "github-actions"
           git config user.email "actions@users.noreply.github.com"
 
-          # URL 정규화: HTTPS로 들어와도 SSH로 변환
-          # https://devtools.ncloud.com/2744031/minjun-repo.git  -> git@devtools.ncloud.com:2744031/minjun-repo.git
+          # https → ssh 자동 변환
           if echo "$NCP_GIT_URL" | grep -qE '^https?://devtools\.ncloud\.com/'; then
             PATH_PART=$(echo "$NCP_GIT_URL" | sed -E 's#^https?://devtools\.ncloud\.com/##')
             SSH_URL="git@devtools.ncloud.com:${PATH_PART}"
@@ -51,4 +48,5 @@ jobs:
           fi
 
           git remote add ncp "$SSH_URL" || git remote set-url ncp "$SSH_URL"
-          git push ncp "$TARGET_BRANCH:$TARGET_BRANCH" --force-with-lease
+          # 핵심: 원본(main) → 대상(master) 매핑
+          git push ncp "$SRC_BRANCH:$DST_BRANCH" --force-with-lease
